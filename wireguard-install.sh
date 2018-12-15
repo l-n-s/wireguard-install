@@ -27,8 +27,15 @@ if [[ ! -e /dev/net/tun ]]; then
     exit
 fi
 
-# TODO: check if distro is supported
-# TODO: add Debian and CentOS support
+
+if [ -e /etc/centos-release ]; then
+    DISTRO="CentOS"
+elif [ -e /etc/debian_version ]; then
+    DISTRO=$( lsb_release -a 2>/dev/null| grep "Distributor ID" | awk '{print $3}' )
+else
+    echo "Your distribution is not supported (yet)"
+    exit
+fi
 
 if [ ! -f "$WG_CONFIG" ]; then
     ### Install server and add default client
@@ -52,15 +59,29 @@ if [ ! -f "$WG_CONFIG" ]; then
         SERVER_PORT=$( get_free_udp_port )
     fi
 
-    add-apt-repository ppa:wireguard/wireguard -y
-    apt-get update
-    apt install wireguard iptables-persistent -y
+    if [ "$DISTRO" == "Ubuntu" ]; then
+        add-apt-repository ppa:wireguard/wireguard -y
+        apt update
+        apt install wireguard iptables-persistent -y
+    elif [ "$DISTRO" == "Debian" ]; then
+        echo "deb http://deb.debian.org/debian/ unstable main" > /etc/apt/sources.list.d/unstable.list
+        printf 'Package: *\nPin: release a=unstable\nPin-Priority: 90\n' > /etc/apt/preferences.d/limit-unstable
+        apt update
+        apt install wireguard iptables-persistent -y
+    elif [ "$DISTRO" == "CentOS" ]; then
+        curl -Lo /etc/yum.repos.d/wireguard.repo https://copr.fedorainfracloud.org/coprs/jdoss/wireguard/repo/epel-7/jdoss-wireguard-epel-7.repo
+        yum install epel-release -y
+        yum install wireguard-dkms wireguard-tools -y
+    fi
 
     SERVER_PRIVKEY=$( wg genkey )
     SERVER_PUBKEY=$( echo $SERVER_PRIVKEY | wg pubkey )
     CLIENT_PRIVKEY=$( wg genkey )
     CLIENT_PUBKEY=$( echo $CLIENT_PRIVKEY | wg pubkey )
     CLIENT_ADDRESS="${PRIVATE_SUBNET::-4}3"
+
+    mkdir -p /etc/wireguard
+    touch $WG_CONFIG && chmod 600 $WG_CONFIG
 
     echo "# $PRIVATE_SUBNET $SERVER_HOST:$SERVER_PORT $SERVER_PUBKEY
 [Interface]
@@ -88,11 +109,20 @@ PersistentKeepalive = 25" > $HOME/client-wg0.conf
     echo "net.ipv6.conf.all.forwarding=1" >> /etc/sysctl.conf
     sysctl -p
 
-    iptables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-    iptables -A FORWARD -m conntrack --ctstate NEW -s $PRIVATE_SUBNET -m policy --pol none --dir in -j ACCEPT
-    iptables -t nat -A POSTROUTING -s $PRIVATE_SUBNET -m policy --pol none --dir out -j MASQUERADE
-    iptables -A INPUT -p udp --dport $SERVER_PORT -j ACCEPT
-    iptables-save > /etc/iptables/rules.v4
+    if [ "$DISTRO" == "CentOS" ]; then
+        firewall-cmd --zone=public --add-port=$SERVER_PORT/udp
+        firewall-cmd --zone=trusted --add-source=$PRIVATE_SUBNET
+        firewall-cmd --permanent --zone=public --add-port=$SERVER_PORT/udp
+        firewall-cmd --permanent --zone=trusted --add-source=$PRIVATE_SUBNET
+        firewall-cmd --direct --add-rule ipv4 nat POSTROUTING 0 -s $PRIVATE_SUBNET ! -d $PRIVATE_SUBNET -j SNAT --to $SERVER_HOST
+        firewall-cmd --permanent --direct --add-rule ipv4 nat POSTROUTING 0 -s $PRIVATE_SUBNET ! -d $PRIVATE_SUBNET -j SNAT --to $SERVER_HOST
+    else
+        iptables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+        iptables -A FORWARD -m conntrack --ctstate NEW -s $PRIVATE_SUBNET -m policy --pol none --dir in -j ACCEPT
+        iptables -t nat -A POSTROUTING -s $PRIVATE_SUBNET -m policy --pol none --dir out -j MASQUERADE
+        iptables -A INPUT -p udp --dport $SERVER_PORT -j ACCEPT
+        iptables-save > /etc/iptables/rules.v4
+    fi
 
     systemctl enable wg-quick@wg0.service
     systemctl start wg-quick@wg0.service
