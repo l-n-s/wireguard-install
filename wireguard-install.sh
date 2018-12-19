@@ -62,16 +62,16 @@ if [ ! -f "$WG_CONFIG" ]; then
     if [ "$DISTRO" == "Ubuntu" ]; then
         add-apt-repository ppa:wireguard/wireguard -y
         apt update
-        apt install wireguard iptables-persistent -y
+        apt install wireguard qrencode iptables-persistent -y
     elif [ "$DISTRO" == "Debian" ]; then
         echo "deb http://deb.debian.org/debian/ unstable main" > /etc/apt/sources.list.d/unstable.list
         printf 'Package: *\nPin: release a=unstable\nPin-Priority: 90\n' > /etc/apt/preferences.d/limit-unstable
         apt update
-        apt install wireguard iptables-persistent -y
+        apt install wireguard qrencode iptables-persistent -y
     elif [ "$DISTRO" == "CentOS" ]; then
         curl -Lo /etc/yum.repos.d/wireguard.repo https://copr.fedorainfracloud.org/coprs/jdoss/wireguard/repo/epel-7/jdoss-wireguard-epel-7.repo
         yum install epel-release -y
-        yum install wireguard-dkms wireguard-tools -y
+        yum install wireguard-dkms qrencode wireguard-tools -y
     fi
 
     SERVER_PRIVKEY=$( wg genkey )
@@ -103,6 +103,7 @@ PublicKey = $SERVER_PUBKEY
 AllowedIPs = 0.0.0.0/0
 Endpoint = $SERVER_HOST:$SERVER_PORT
 PersistentKeepalive = 25" > $HOME/client-wg0.conf
+qrencode -t ansiutf8 -l L < $HOME/client-wg0.conf
 
     echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
     echo "net.ipv4.conf.all.forwarding=1" >> /etc/sysctl.conf
@@ -158,6 +159,7 @@ PublicKey = $SERVER_PUBKEY
 AllowedIPs = 0.0.0.0/0
 Endpoint = $SERVER_ENDPOINT
 PersistentKeepalive = 25" > $HOME/$CLIENT_NAME-wg0.conf
+qrencode -t ansiutf8 -l L < $HOME/$CLIENT_NAME-wg0.conf
 
     ip address | grep -q wg0 && wg set wg0 peer "$CLIENT_PUBKEY" allowed-ips "$CLIENT_ADDRESS/32"
     echo "Client added, new configuration file --> $HOME/$CLIENT_NAME-wg0.conf"
