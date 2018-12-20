@@ -6,6 +6,14 @@
 
 WG_CONFIG="/etc/wireguard/wg0.conf"
 
+# Distro and Release variables
+# Version
+release="$(lsb_release -rs)"
+# Distro
+id="$(lsb_release -is)"
+
+# Get free udp port
+
 function get_free_udp_port
 {
     local port=$(shuf -i 2000-65000 -n 1)
@@ -17,21 +25,25 @@ function get_free_udp_port
     fi
 }
 
+# Check EUID
 if [[ "$EUID" -ne 0 ]]; then
     echo "Sorry, you need to run this as root"
     exit
 fi
 
+# Check TUN
 if [[ ! -e /dev/net/tun ]]; then
     echo "The TUN device is not available. You need to enable TUN before running this script"
     exit
 fi
 
-
-if [ -e /etc/centos-release ]; then
+# Check distro and version
+if [ $id == CentOS ]; then
     DISTRO="CentOS"
-elif [ -e /etc/debian_version ]; then
-    DISTRO=$( lsb_release -a 2>/dev/null| grep "Distributor ID" | awk '{print $3}' )
+elif [ $id == debian ]; then
+    DISTRO="Debian"
+elif [ $id == Ubuntu ]; then
+    DISTRO="Ubuntu"
 else
     echo "Your distribution is not supported (yet)"
     exit
@@ -60,14 +72,29 @@ if [ ! -f "$WG_CONFIG" ]; then
     fi
 
     if [ "$DISTRO" == "Ubuntu" ]; then
-        add-apt-repository ppa:wireguard/wireguard -y
+        add-apt-repository -y ppa:wireguard/wireguard
         apt update
-        apt install wireguard iptables-persistent -y
+        apt -y install wireguard iptables-persistent
     elif [ "$DISTRO" == "Debian" ]; then
-        echo "deb http://deb.debian.org/debian/ unstable main" > /etc/apt/sources.list.d/unstable.list
-        printf 'Package: *\nPin: release a=unstable\nPin-Priority: 90\n' > /etc/apt/preferences.d/limit-unstable
-        apt update
-        apt install wireguard iptables-persistent -y
+        if [ $release != unstable }; then
+            if [ -e "/etc/apt/sources.list.d/unstable.list" ]; then
+                if [ -e "/etc/apt/preferences.d/unstable" ]; then
+                    apt-get update
+                    apt-get -y install wiregaurd iptables-persistent
+                else
+                    printf 'Package: *\nPin: release a=unstable\nPin-Priority: 90\n' > /etc/apt/preferences.d/unstable
+                    apt-get update
+                    apt-get -y install wireguard iptables-persistent
+                fi
+            else
+                printf "deb http://deb.debian.org/debian unstable main" > /etc/apt/sources.list.d/unstable
+                printf 'Package *\nPin: release a=unstable\nPin-Priority" 90\n' > /etc/apt/preferences.d/unstable
+                apt-get update
+                apt-get -y install wireguard iptables-persistent
+            fi
+        else
+            apt-get
+            apt-get -y install wireguard iptables-persistent
     elif [ "$DISTRO" == "CentOS" ]; then
         curl -Lo /etc/yum.repos.d/wireguard.repo https://copr.fedorainfracloud.org/coprs/jdoss/wireguard/repo/epel-7/jdoss-wireguard-epel-7.repo
         yum install epel-release -y
