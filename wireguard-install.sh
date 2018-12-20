@@ -31,7 +31,7 @@ fi
 if [ -e /etc/centos-release ]; then
     DISTRO="CentOS"
 elif [ -e /etc/debian_version ]; then
-    DISTRO=$( lsb_release -a 2>/dev/null| grep "Distributor ID" | awk '{print $3}' )
+    DISTRO=$( lsb_release -is )
 else
     echo "Your distribution is not supported (yet)"
     exit
