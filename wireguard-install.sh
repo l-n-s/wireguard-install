@@ -59,6 +59,26 @@ if [ ! -f "$WG_CONFIG" ]; then
         SERVER_PORT=$( get_free_udp_port )
     fi
 
+    if [ "$CLIENT_DNS" == "" ]; then
+        echo "Which DNS do you want to use with the VPN?"
+        echo "   1) Cloudflare"
+        echo "   2) Google"
+        echo "   3) OpenDNS"
+        read -p "DNS [1-3]: " -e -i 1 DNS_CHOICE
+
+        case $DNS_CHOICE in
+            1)
+            CLIENT_DNS="1.1.1.1,1.0.0.1"
+            ;;
+            2)
+            CLIENT_DNS="8.8.8.8,8.8.4.4"
+            ;;
+            3)
+            CLIENT_DNS="208.67.222.222,208.67.220.220"
+            ;;
+        esac
+    fi
+
     if [ "$DISTRO" == "Ubuntu" ]; then
         add-apt-repository ppa:wireguard/wireguard -y
         apt update
@@ -83,7 +103,7 @@ if [ ! -f "$WG_CONFIG" ]; then
     mkdir -p /etc/wireguard
     touch $WG_CONFIG && chmod 600 $WG_CONFIG
 
-    echo "# $PRIVATE_SUBNET $SERVER_HOST:$SERVER_PORT $SERVER_PUBKEY
+    echo "# $PRIVATE_SUBNET $SERVER_HOST:$SERVER_PORT $SERVER_PUBKEY $CLIENT_DNS
 [Interface]
 Address = $GATEWAY_ADDRESS/$PRIVATE_SUBNET_MASK
 ListenPort = $SERVER_PORT
@@ -102,6 +122,7 @@ Address = $CLIENT_ADDRESS/$PRIVATE_SUBNET_MASK
 PublicKey = $SERVER_PUBKEY
 AllowedIPs = 0.0.0.0/0
 Endpoint = $SERVER_HOST:$SERVER_PORT
+DNS = $CLIENT_DNS
 PersistentKeepalive = 25" > $HOME/client-wg0.conf
 qrencode -t ansiutf8 -l L < $HOME/client-wg0.conf
 
@@ -144,6 +165,7 @@ else
     PRIVATE_SUBNET_MASK=$( echo $PRIVATE_SUBNET | cut -d "/" -f 2 )
     SERVER_ENDPOINT=$( head -n1 $WG_CONFIG | awk '{print $3}')
     SERVER_PUBKEY=$( head -n1 $WG_CONFIG | awk '{print $4}')
+    CLIENT_DNS=$( head -n1 $WG_CONFIG | awk '{print $5}')
     LASTIP=$( grep "/32" $WG_CONFIG | tail -n1 | awk '{print $3}' | cut -d "/" -f 1 | cut -d "." -f 4 )
     CLIENT_ADDRESS="${PRIVATE_SUBNET::-4}$((LASTIP+1))"
     echo "# $CLIENT_NAME
@@ -158,6 +180,7 @@ Address = $CLIENT_ADDRESS/$PRIVATE_SUBNET_MASK
 PublicKey = $SERVER_PUBKEY
 AllowedIPs = 0.0.0.0/0
 Endpoint = $SERVER_ENDPOINT
+DNS = $CLIENT_DNS
 PersistentKeepalive = 25" > $HOME/$CLIENT_NAME-wg0.conf
 qrencode -t ansiutf8 -l L < $HOME/$CLIENT_NAME-wg0.conf
 
