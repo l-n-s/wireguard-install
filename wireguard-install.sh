@@ -41,7 +41,7 @@ fi
 if [ $id == CentOS ]; then
     DISTRO="CentOS"
 elif [ $id == debian ]; then
-    DISTR0="Debian"
+    DISTRO="Debian"
 elif [ $id == Ubuntu ]; then
     DISTRO="Ubuntu"
 else
