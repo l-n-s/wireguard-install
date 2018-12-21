@@ -118,11 +118,11 @@ AllowedIPs = $CLIENT_ADDRESS/32" >> $WG_CONFIG
     echo "[Interface]
 PrivateKey = $CLIENT_PRIVKEY
 Address = $CLIENT_ADDRESS/$PRIVATE_SUBNET_MASK
+DNS = $CLIENT_DNS
 [Peer]
 PublicKey = $SERVER_PUBKEY
 AllowedIPs = 0.0.0.0/0
 Endpoint = $SERVER_HOST:$SERVER_PORT
-DNS = $CLIENT_DNS
 PersistentKeepalive = 25" > $HOME/client-wg0.conf
 qrencode -t ansiutf8 -l L < $HOME/client-wg0.conf
 
@@ -176,11 +176,11 @@ AllowedIPs = $CLIENT_ADDRESS/32" >> $WG_CONFIG
     echo "[Interface]
 PrivateKey = $CLIENT_PRIVKEY
 Address = $CLIENT_ADDRESS/$PRIVATE_SUBNET_MASK
+DNS = $CLIENT_DNS
 [Peer]
 PublicKey = $SERVER_PUBKEY
 AllowedIPs = 0.0.0.0/0
 Endpoint = $SERVER_ENDPOINT
-DNS = $CLIENT_DNS
 PersistentKeepalive = 25" > $HOME/$CLIENT_NAME-wg0.conf
 qrencode -t ansiutf8 -l L < $HOME/$CLIENT_NAME-wg0.conf
 
