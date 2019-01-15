@@ -32,7 +32,7 @@ if [ -e /etc/centos-release ]; then
     DISTRO="CentOS"
 elif [ -e /etc/debian_version ]; then
     DISTRO=$( lsb_release -is )
-elif [-e /etc/arch-release]; then
+elif [ -e /etc/arch-release ]; then
     DISTRO="Arch"
 else
     echo "Your distribution is not supported (yet)"
