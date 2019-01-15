@@ -32,6 +32,8 @@ if [ -e /etc/centos-release ]; then
     DISTRO="CentOS"
 elif [ -e /etc/debian_version ]; then
     DISTRO=$( lsb_release -is )
+elif [ -e /etc/arch-release ]; then
+    DISTRO="Arch"
 else
     echo "Your distribution is not supported (yet)"
     exit
@@ -92,6 +94,9 @@ if [ ! -f "$WG_CONFIG" ]; then
         curl -Lo /etc/yum.repos.d/wireguard.repo https://copr.fedorainfracloud.org/coprs/jdoss/wireguard/repo/epel-7/jdoss-wireguard-epel-7.repo
         yum install epel-release -y
         yum install wireguard-dkms qrencode wireguard-tools -y
+    elif [ "$DISTRO" == "Arch" ]; then
+        pacman -Sy  wireguard-tools wireguard-dkms iptables
+        
     fi
 
     SERVER_PRIVKEY=$( wg genkey )
