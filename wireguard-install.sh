@@ -91,7 +91,7 @@ if [ ! -f "$WG_CONFIG" ]; then
     elif [ "$DISTRO" == "CentOS" ]; then
         curl -Lo /etc/yum.repos.d/wireguard.repo https://copr.fedorainfracloud.org/coprs/jdoss/wireguard/repo/epel-7/jdoss-wireguard-epel-7.repo
         yum install epel-release -y
-        yum install wireguard-dkms qrencode wireguard-tools -y
+        yum install wireguard-dkms qrencode wireguard-tools firewalld -y
     fi
 
     SERVER_PRIVKEY=$( wg genkey )
@@ -132,6 +132,7 @@ qrencode -t ansiutf8 -l L < $HOME/client-wg0.conf
     sysctl -p
 
     if [ "$DISTRO" == "CentOS" ]; then
+        systemctl start firewalld
         firewall-cmd --zone=public --add-port=$SERVER_PORT/udp
         firewall-cmd --zone=trusted --add-source=$PRIVATE_SUBNET
         firewall-cmd --permanent --zone=public --add-port=$SERVER_PORT/udp
