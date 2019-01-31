@@ -37,6 +37,11 @@ else
     exit
 fi
 
+if [ "$( systemd-detect-virt )" == "openvz" ]; then
+    echo "OpenVZ virtualization is not supported"
+    exit
+fi
+
 if [ ! -f "$WG_CONFIG" ]; then
     ### Install server and add default client
     INTERACTIVE=${INTERACTIVE:-yes}
