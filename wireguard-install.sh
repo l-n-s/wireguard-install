@@ -45,9 +45,12 @@ fi
 if [ ! -f "$WG_CONFIG" ]; then
     ### Install server and add default client
     INTERACTIVE=${INTERACTIVE:-yes}
-    PRIVATE_SUBNET=${PRIVATE_SUBNET:-"10.9.0.0/24"}
-    PRIVATE_SUBNET_MASK=$( echo $PRIVATE_SUBNET | cut -d "/" -f 2 )
-    GATEWAY_ADDRESS="${PRIVATE_SUBNET::-4}1"
+    PRIVATE_SUBNET_V4=${PRIVATE_SUBNET_V4:-"10.8.0.0/24"}
+    PRIVATE_SUBNET_MASK_V4=$( echo $PRIVATE_SUBNET_V4 | cut -d "/" -f 2 )
+    PRIVATE_SUBNET_V6=${PRIVATE_SUBNET_V6:-"fc00:8:0::0/64"}
+    PRIVATE_SUBNET_MASK_V6=$( echo $PRIVATE_SUBNET_V6 | cut -d "/" -f 2 )
+    GATEWAY_ADDRESS_V6="${PRIVATE_SUBNET_V6::-4}1"
+    GATEWAY_ADDRESS_V4="${PRIVATE_SUBNET_V4::-4}1"
 
     if [ "$SERVER_HOST" == "" ]; then
         SERVER_HOST=$(ip addr | grep 'inet' | grep -v inet6 | grep -vE '127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | head -1)
@@ -103,14 +106,15 @@ if [ ! -f "$WG_CONFIG" ]; then
     SERVER_PUBKEY=$( echo $SERVER_PRIVKEY | wg pubkey )
     CLIENT_PRIVKEY=$( wg genkey )
     CLIENT_PUBKEY=$( echo $CLIENT_PRIVKEY | wg pubkey )
-    CLIENT_ADDRESS="${PRIVATE_SUBNET::-4}3"
+    CLIENT_ADDRESS_V4="${PRIVATE_SUBNET_V4::-4}3"
+    CLIENT_ADDRESS_V6="${PRIVATE_SUBNET_V6::-4}3"
 
     mkdir -p /etc/wireguard
     touch $WG_CONFIG && chmod 600 $WG_CONFIG
 
-    echo "# $PRIVATE_SUBNET $SERVER_HOST:$SERVER_PORT $SERVER_PUBKEY $CLIENT_DNS
+    echo "# $PRIVATE_SUBNET_V4 $PRIVATE_SUBNET_V6 $SERVER_HOST:$SERVER_PORT $SERVER_PUBKEY $CLIENT_DNS
 [Interface]
-Address = $GATEWAY_ADDRESS/$PRIVATE_SUBNET_MASK
+Address = $GATEWAY_ADDRESS_V4/$PRIVATE_SUBNET_MASK_V4, $GATEWAY_ADDRESS_V6/$PRIVATE_SUBNET_MASK_V6
 ListenPort = $SERVER_PORT
 PrivateKey = $SERVER_PRIVKEY
 SaveConfig = false" > $WG_CONFIG
@@ -118,11 +122,11 @@ SaveConfig = false" > $WG_CONFIG
     echo "# client
 [Peer]
 PublicKey = $CLIENT_PUBKEY
-AllowedIPs = $CLIENT_ADDRESS/32" >> $WG_CONFIG
+AllowedIPs = $CLIENT_ADDRESS_V4/32, $CLIENT_ADDRESS_V6/64" >> $WG_CONFIG
 
     echo "[Interface]
 PrivateKey = $CLIENT_PRIVKEY
-Address = $CLIENT_ADDRESS/$PRIVATE_SUBNET_MASK
+Address = $CLIENT_ADDRESS_V4/$PRIVATE_SUBNET_MASK_V4, $CLIENT_ADDRESS_V6/$PRIVATE_SUBNET_MASK_V6
 DNS = $CLIENT_DNS
 [Peer]
 PublicKey = $SERVER_PUBKEY
@@ -139,15 +143,17 @@ qrencode -t ansiutf8 -l L < $HOME/client-wg0.conf
     if [ "$DISTRO" == "CentOS" ]; then
         systemctl start firewalld
         firewall-cmd --zone=public --add-port=$SERVER_PORT/udp
-        firewall-cmd --zone=trusted --add-source=$PRIVATE_SUBNET
+        firewall-cmd --zone=trusted --add-source=$PRIVATE_SUBNET_V4
         firewall-cmd --permanent --zone=public --add-port=$SERVER_PORT/udp
-        firewall-cmd --permanent --zone=trusted --add-source=$PRIVATE_SUBNET
-        firewall-cmd --direct --add-rule ipv4 nat POSTROUTING 0 -s $PRIVATE_SUBNET ! -d $PRIVATE_SUBNET -j SNAT --to $SERVER_HOST
-        firewall-cmd --permanent --direct --add-rule ipv4 nat POSTROUTING 0 -s $PRIVATE_SUBNET ! -d $PRIVATE_SUBNET -j SNAT --to $SERVER_HOST
+        firewall-cmd --permanent --zone=trusted --add-source=$PRIVATE_SUBNET_V4
+        firewall-cmd --direct --add-rule ipv4 nat POSTROUTING 0 -s $PRIVATE_SUBNET_V4 ! -d $PRIVATE_SUBNET_V4 -j SNAT --to $SERVER_HOST
+        firewall-cmd --permanent --direct --add-rule ipv4 nat POSTROUTING 0 -s $PRIVATE_SUBNET_V4 ! -d $PRIVATE_SUBNET_V4 -j SNAT --to $SERVER_HOST
     else
         iptables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-        iptables -A FORWARD -m conntrack --ctstate NEW -s $PRIVATE_SUBNET -m policy --pol none --dir in -j ACCEPT
-        iptables -t nat -A POSTROUTING -s $PRIVATE_SUBNET -m policy --pol none --dir out -j MASQUERADE
+        iptables -A FORWARD -m conntrack --ctstate NEW -s $PRIVATE_SUBNET_V4 -m policy --pol none --dir in -j ACCEPT
+        iptables -A FORWARD -m conntrack --ctstate NEW -s $PRIVATE_SUBNET_V6 -m policy --pol none --dir in -j ACCEPT
+        iptables -t nat -A POSTROUTING -s $PRIVATE_SUBNET_V4 -m policy --pol none --dir out -j MASQUERADE
+        iptables -t nat -A POSTROUTING -s $PRIVATE_SUBNET_V6 -m policy --pol none --dir out -j MASQUERADE
         iptables -A INPUT -p udp --dport $SERVER_PORT -j ACCEPT
         iptables-save > /etc/iptables/rules.v4
     fi
@@ -167,21 +173,22 @@ else
     fi
     CLIENT_PRIVKEY=$( wg genkey )
     CLIENT_PUBKEY=$( echo $CLIENT_PRIVKEY | wg pubkey )
-    PRIVATE_SUBNET=$( head -n1 $WG_CONFIG | awk '{print $2}')
-    PRIVATE_SUBNET_MASK=$( echo $PRIVATE_SUBNET | cut -d "/" -f 2 )
+    PRIVATE_SUBNET_V4=$( head -n1 $WG_CONFIG | awk '{print $2}')
+    PRIVATE_SUBNET_MASK_V4=$( echo $PRIVATE_SUBNET_V4 | cut -d "/" -f 2 )
     SERVER_ENDPOINT=$( head -n1 $WG_CONFIG | awk '{print $3}')
     SERVER_PUBKEY=$( head -n1 $WG_CONFIG | awk '{print $4}')
     CLIENT_DNS=$( head -n1 $WG_CONFIG | awk '{print $5}')
     LASTIP=$( grep "/32" $WG_CONFIG | tail -n1 | awk '{print $3}' | cut -d "/" -f 1 | cut -d "." -f 4 )
-    CLIENT_ADDRESS="${PRIVATE_SUBNET::-4}$((LASTIP+1))"
+    CLIENT_ADDRESS_V4="${PRIVATE_SUBNET_V4::-4}$((LASTIP+1))"
+    CLIENT_ADDRESS_V6="${PRIVATE_SUBNET_V6::-4}$((LASTIP+1))"
     echo "# $CLIENT_NAME
 [Peer]
 PublicKey = $CLIENT_PUBKEY
-AllowedIPs = $CLIENT_ADDRESS/32" >> $WG_CONFIG
+AllowedIPs = $CLIENT_ADDRESS_V4/32, $CLIENT_ADDRESS_V6/64" >> $WG_CONFIG
 
     echo "[Interface]
 PrivateKey = $CLIENT_PRIVKEY
-Address = $CLIENT_ADDRESS/$PRIVATE_SUBNET_MASK
+Address = $CLIENT_ADDRESS_V4/$PRIVATE_SUBNET_MASK_V4 , $CLIENT_ADDRESS_V6/$PRIVATE_SUBNET_MASK_V6
 DNS = $CLIENT_DNS
 [Peer]
 PublicKey = $SERVER_PUBKEY
@@ -190,6 +197,6 @@ Endpoint = $SERVER_ENDPOINT
 PersistentKeepalive = 25" > $HOME/$CLIENT_NAME-wg0.conf
 qrencode -t ansiutf8 -l L < $HOME/$CLIENT_NAME-wg0.conf
 
-    ip address | grep -q wg0 && wg set wg0 peer "$CLIENT_PUBKEY" allowed-ips "$CLIENT_ADDRESS/32"
+    ip address | grep -q wg0 && wg set wg0 peer "$CLIENT_PUBKEY" allowed-ips "$CLIENT_ADDRESS_V4/32 , CLIENT_ADDRESS_V6/64"
     echo "Client added, new configuration file --> $HOME/$CLIENT_NAME-wg0.conf"
 fi
