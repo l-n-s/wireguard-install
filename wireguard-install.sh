@@ -188,7 +188,7 @@ AllowedIPs = $CLIENT_ADDRESS_V4/32, $CLIENT_ADDRESS_V6/64" >> $WG_CONFIG
 
     echo "[Interface]
 PrivateKey = $CLIENT_PRIVKEY
-Address = $CLIENT_ADDRESS_V4/$PRIVATE_SUBNET_MASK_V4 , $CLIENT_ADDRESS_V6/$PRIVATE_SUBNET_MASK_V6
+Address = $CLIENT_ADDRESS_V4/$PRIVATE_SUBNET_MASK_V4, $CLIENT_ADDRESS_V6/$PRIVATE_SUBNET_MASK_V6
 DNS = $CLIENT_DNS
 [Peer]
 PublicKey = $SERVER_PUBKEY
@@ -197,6 +197,6 @@ Endpoint = $SERVER_ENDPOINT
 PersistentKeepalive = 25" > $HOME/$CLIENT_NAME-wg0.conf
 qrencode -t ansiutf8 -l L < $HOME/$CLIENT_NAME-wg0.conf
 
-    ip address | grep -q wg0 && wg set wg0 peer "$CLIENT_PUBKEY" allowed-ips "$CLIENT_ADDRESS_V4/32 , CLIENT_ADDRESS_V6/64"
+    ip address | grep -q wg0 && wg set wg0 peer "$CLIENT_PUBKEY" allowed-ips "$CLIENT_ADDRESS_V4/32, CLIENT_ADDRESS_V6/64"
     echo "Client added, new configuration file --> $HOME/$CLIENT_NAME-wg0.conf"
 fi
