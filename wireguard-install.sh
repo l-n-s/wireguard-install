@@ -184,7 +184,7 @@ else
     echo "# $CLIENT_NAME
 [Peer]
 PublicKey = $CLIENT_PUBKEY
-AllowedIPs = $CLIENT_ADDRESS_V4/32 , $CLIENT_ADDRESS_V6/64" >> $WG_CONFIG
+AllowedIPs = $CLIENT_ADDRESS_V4/32 , $CLIENT_ADDRESS_V6/128" >> $WG_CONFIG
 
     echo "[Interface]
 PrivateKey = $CLIENT_PRIVKEY
