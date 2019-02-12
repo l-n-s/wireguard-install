@@ -113,7 +113,8 @@ if [ ! -f "$WG_CONFIG" ]; then
         
     fi
 
-    if [ "$DISTRO" == "Ubuntu" ]; then
+    if [ "$DISTRO" == "Ubuntu" ]; thenv
+        apt install software-properties-common -y
         add-apt-repository ppa:wireguard/wireguard -y
         apt update
         apt install wireguard qrencode iptables-persistent -y
