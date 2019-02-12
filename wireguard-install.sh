@@ -2,7 +2,6 @@
 #
 # https://github.com/l-n-s/wireguard-install
 #
-# Copyright (c) 2018 Viktor Villainov. Released under the MIT License.
 
 WG_CONFIG="/etc/wireguard/wg0.conf"
 
@@ -45,7 +44,7 @@ fi
 if [ ! -f "$WG_CONFIG" ]; then
     ### Install server and add default client
     INTERACTIVE=${INTERACTIVE:-yes}
-    PRIVATE_SUBNET=${PRIVATE_SUBNET:-"10.9.0.0/24"}
+    PRIVATE_SUBNET=${PRIVATE_SUBNET:-"10.8.0.0/24"}
     PRIVATE_SUBNET_MASK=$( echo $PRIVATE_SUBNET | cut -d "/" -f 2 )
     GATEWAY_ADDRESS="${PRIVATE_SUBNET::-4}1"
 
@@ -69,7 +68,14 @@ if [ ! -f "$WG_CONFIG" ]; then
         echo "   1) Cloudflare"
         echo "   2) Google"
         echo "   3) OpenDNS"
-        read -p "DNS [1-3]: " -e -i 1 DNS_CHOICE
+        echo "   4) AdGuard"
+        echo "   5) AdGuard Family Protection"
+        echo "   6) Quad9"
+        echo "   7) Quad9 Uncensored"
+        echo "   8) FDN"
+        echo "   9) DNS.WATCH"
+        echo "   10) Yandex Basic"
+        read -p "DNS [1-10]: " -e -i 1 DNS_CHOICE
 
         case $DNS_CHOICE in
             1)
@@ -81,18 +87,52 @@ if [ ! -f "$WG_CONFIG" ]; then
             3)
             CLIENT_DNS="208.67.222.222,208.67.220.220"
             ;;
+            4)
+            CLIENT_DNS="176.103.130.130,176.103.130.131"
+            ;;
+            5)
+            CLIENT_DNS="176.103.130.132,176.103.130.134"
+            ;;
+            6)
+            CLIENT_DNS="9.9.9.9,149.112.112.112"
+            ;;
+            7)
+            CLIENT_DNS="9.9.9.10,149.112.112.10"
+            ;;
+            8)
+            CLIENT_DNS="80.67.169.40,80.67.169.12"
+            ;;
+            9)
+            CLIENT_DNS="84.200.69.80,84.200.70.40"
+            ;;
+            10)
+            CLIENT_DNS="77.88.8.8,77.88.8.1"
+            ;;
         esac
+        
     fi
 
     if [ "$DISTRO" == "Ubuntu" ]; then
+        apt update
+        apt upgrade -y
+        apt dist-upgrade -y 
+        apt autoremove -y
+        apt clean -y
+        apt install build-essential haveged -y 
+        apt install software-properties-common -y
         add-apt-repository ppa:wireguard/wireguard -y
         apt update
         apt install wireguard qrencode iptables-persistent -y
     elif [ "$DISTRO" == "Debian" ]; then
         echo "deb http://deb.debian.org/debian/ unstable main" > /etc/apt/sources.list.d/unstable.list
         printf 'Package: *\nPin: release a=unstable\nPin-Priority: 90\n' > /etc/apt/preferences.d/limit-unstable
-        apt update
-        apt install wireguard qrencode iptables-persistent -y
+        apt-get update
+        apt-get upgrade -y
+        apt-get dist-upgrade -y 
+        apt-get autoremove -y
+        apt-get clean -y
+        apt-get install build-essential haveged -y 
+        apt-get install wireguard qrencode iptables-persistent -y
     elif [ "$DISTRO" == "CentOS" ]; then
         curl -Lo /etc/yum.repos.d/wireguard.repo https://copr.fedorainfracloud.org/coprs/jdoss/wireguard/repo/epel-7/jdoss-wireguard-epel-7.repo
         yum install epel-release -y
