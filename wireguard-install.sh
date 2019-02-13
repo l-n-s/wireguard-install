@@ -110,7 +110,7 @@ if [ ! -f "$WG_CONFIG" ]; then
             CLIENT_DNS="77.88.8.8,77.88.8.1"
             ;;
             11)
-            CLIENT_DNS="10.8.0.0"
+            CLIENT_DNS="10.8.0.1"
             ;;
         esac
         
@@ -126,7 +126,7 @@ if [ ! -f "$WG_CONFIG" ]; then
         apt install software-properties-common -y
         add-apt-repository ppa:wireguard/wireguard -y
         apt update
-        apt install wireguard qrencode iptables-persistent -y
+        apt install wireguard qrencode iptables-persistent resolvconf -y
         apt install unbound unbound-host -y
         curl -o /var/lib/unbound/root.hints https://www.internic.net/domain/named.cache
         rm /etc/unbound/unbound.conf
@@ -189,7 +189,7 @@ if [ ! -f "$WG_CONFIG" ]; then
         apt-get clean -y
         apt-get install build-essential haveged curl linux-headers-$(uname -r) -y 
         apt-get install wireguard qrencode iptables-persistent -y
-        apt install unbound unbound-host -y
+        apt install unbound unbound-host resolvconf -y
         curl -o /var/lib/unbound/root.hints https://www.internic.net/domain/named.cache
         rm /etc/unbound/unbound.conf
         curl -o /var/lib/unbound/root.hints https://www.internic.net/domain/named.cache
