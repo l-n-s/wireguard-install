@@ -75,7 +75,8 @@ if [ ! -f "$WG_CONFIG" ]; then
         echo "   8) FDN"
         echo "   9) DNS.WATCH"
         echo "   10) Yandex Basic"
-        read -p "DNS [1-10]: " -e -i 1 DNS_CHOICE
+        echo "   11) Unbound"
+        read -p "DNS [1-11]: " -e -i 1 DNS_CHOICE
 
         case $DNS_CHOICE in
             1)
@@ -108,6 +109,9 @@ if [ ! -f "$WG_CONFIG" ]; then
             10)
             CLIENT_DNS="77.88.8.8,77.88.8.1"
             ;;
+            11)
+            CLIENT_DNS="10.8.0.0"
+            ;;
         esac
         
     fi
@@ -118,11 +122,17 @@ if [ ! -f "$WG_CONFIG" ]; then
         apt dist-upgrade -y 
         apt autoremove -y
         apt clean -y
-        apt install build-essential haveged -y 
+        apt install build-essential haveged curl linux-headers-$(uname -r) -y 
         apt install software-properties-common -y
         add-apt-repository ppa:wireguard/wireguard -y
         apt update
         apt install wireguard qrencode iptables-persistent -y
+        apt install unbound unbound-host -y
+        curl -o /var/lib/unbound/root.hints https://www.internic.net/domain/named.cache
+        rm /etc/unbound/unbound.conf
+        curl -o /etc/unbound/unbound.conf https://gist.githubusercontent.com/LiveChief/06df7e7368df150143dca624dbad7d8f/raw/a84368fe43983f6f521fd8ece23e10cdb1a03303/WireGuard-Unbound.conf
+        chown -R unbound:unbound /var/lib/unbound
+        systemctl enable unbound
     elif [ "$DISTRO" == "Debian" ]; then
         echo "deb http://deb.debian.org/debian/ unstable main" > /etc/apt/sources.list.d/unstable.list
         printf 'Package: *\nPin: release a=unstable\nPin-Priority: 90\n' > /etc/apt/preferences.d/limit-unstable
@@ -131,8 +141,14 @@ if [ ! -f "$WG_CONFIG" ]; then
         apt-get dist-upgrade -y 
         apt-get autoremove -y
         apt-get clean -y
-        apt-get install build-essential haveged -y 
+        apt-get install build-essential haveged curl linux-headers-$(uname -r) -y 
         apt-get install wireguard qrencode iptables-persistent -y
+        apt install unbound unbound-host -y
+        curl -o /var/lib/unbound/root.hints https://www.internic.net/domain/named.cache
+        rm /etc/unbound/unbound.conf
+        curl -o /etc/unbound/unbound.conf https://gist.githubusercontent.com/LiveChief/06df7e7368df150143dca624dbad7d8f/raw/a84368fe43983f6f521fd8ece23e10cdb1a03303/WireGuard-Unbound.conf
+        chown -R unbound:unbound /var/lib/unbound
+        systemctl enable unbound
     elif [ "$DISTRO" == "CentOS" ]; then
         curl -Lo /etc/yum.repos.d/wireguard.repo https://copr.fedorainfracloud.org/coprs/jdoss/wireguard/repo/epel-7/jdoss-wireguard-epel-7.repo
         yum install epel-release -y
@@ -189,6 +205,8 @@ qrencode -t ansiutf8 -l L < $HOME/client-wg0.conf
         iptables -A FORWARD -m conntrack --ctstate NEW -s $PRIVATE_SUBNET -m policy --pol none --dir in -j ACCEPT
         iptables -t nat -A POSTROUTING -s $PRIVATE_SUBNET -m policy --pol none --dir out -j MASQUERADE
         iptables -A INPUT -p udp --dport $SERVER_PORT -j ACCEPT
+        iptables -A INPUT -s 10.8.0.0/24 -p tcp -m tcp --dport 53 -m conntrack --ctstate NEW -j ACCEPT
+        iptables -A INPUT -s 10.8.0.0/24 -p udp -m udp --dport 53 -m conntrack --ctstate NEW -j ACCEPT
         iptables-save > /etc/iptables/rules.v4
     fi
 
