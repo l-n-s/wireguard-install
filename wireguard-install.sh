@@ -85,7 +85,7 @@ if [ ! -f "$WG_CONFIG" ]; then
     fi
 
     if [ "$CLIENT_NAME" == "" ]; then
-        read -p "Tell me a name for the client config file. Use one word only, no special characters: " -e -i "client" CONFIRM
+        read -p "Tell me a name for the client config file. Use one word only, no special characters: " -e -i "client" CLIENT_NAME
     fi
 
     if [ "$DISTRO" == "Ubuntu" ]; then
