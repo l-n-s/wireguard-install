@@ -84,6 +84,10 @@ if [ ! -f "$WG_CONFIG" ]; then
         esac
     fi
 
+    if [ "$CLIENT_NAME" == "" ]; then
+        read -p "Tell me a name for the client config file. Use one word only, no special characters: " -e -i "client" CLIENT_NAME
+    fi
+
     if [ "$DISTRO" == "Ubuntu" ]; then
 	apt-get install software-properties-common -y
 	add-apt-repository ppa:wireguard/wireguard -y
@@ -117,7 +121,7 @@ ListenPort = $SERVER_PORT
 PrivateKey = $SERVER_PRIVKEY
 SaveConfig = false" > $WG_CONFIG
 
-    echo "# client
+    echo "# $CLIENT_NAME
 [Peer]
 PublicKey = $CLIENT_PUBKEY
 AllowedIPs = $CLIENT_ADDRESS/32" >> $WG_CONFIG
@@ -130,8 +134,8 @@ DNS = $CLIENT_DNS
 PublicKey = $SERVER_PUBKEY
 AllowedIPs = 0.0.0.0/0, ::/0
 Endpoint = $SERVER_HOST:$SERVER_PORT
-PersistentKeepalive = 25" > $HOME/client-wg0.conf
-qrencode -t ansiutf8 -l L < $HOME/client-wg0.conf
+PersistentKeepalive = 25" > $HOME/$CLIENT_NAME-wg0.conf
+qrencode -t ansiutf8 -l L < $HOME/$CLIENT_NAME-wg0.conf
 
     echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
     echo "net.ipv4.conf.all.forwarding=1" >> /etc/sysctl.conf
@@ -158,7 +162,7 @@ qrencode -t ansiutf8 -l L < $HOME/client-wg0.conf
     systemctl start wg-quick@wg0.service
 
     # TODO: unattended updates, apt install dnsmasq ntp
-    echo "Client config --> $HOME/client-wg0.conf"
+    echo "Client config --> $HOME/$CLIENT_NAME-wg0.conf"
     echo "Now reboot the server and enjoy your fresh VPN installation! :^)"
 else
     ### Server is installed, add a new client
