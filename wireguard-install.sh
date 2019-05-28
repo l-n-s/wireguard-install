@@ -144,6 +144,7 @@ qrencode -t ansiutf8 -l L < $HOME/$CLIENT_NAME-wg0.conf
 
     if [ "$DISTRO" == "CentOS" ]; then
         systemctl start firewalld
+        systemctl enable firewalld
         firewall-cmd --zone=public --add-port=$SERVER_PORT/udp
         firewall-cmd --zone=trusted --add-source=$PRIVATE_SUBNET
         firewall-cmd --permanent --zone=public --add-port=$SERVER_PORT/udp
