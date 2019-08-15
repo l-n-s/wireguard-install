@@ -23,7 +23,7 @@ The script can be configured by setting the following environment variables:
 * PRIVATE\_SUBNET - private subnet configuration, "10.9.0.0/24" by default
 * SERVER\_HOST - public IP address, detected by default
 * SERVER\_PORT - listening port, picked random by default
-* CLIENT\_DNS - comma serparated DNS servers to use by the client
+* CLIENT\_DNS - comma separated DNS servers to use by the client
 
 ## Setting up clients
 
