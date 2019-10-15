@@ -69,7 +69,9 @@ if [ ! -f "$WG_CONFIG" ]; then
         echo "   1) Cloudflare"
         echo "   2) Google"
         echo "   3) OpenDNS"
-        read -p "DNS [1-3]: " -e -i 1 DNS_CHOICE
+        echo "   4) AdGuard"
+        echo "   5) Quad9"
+        read -p "DNS [1-5]: " -e -i 1 DNS_CHOICE
 
         case $DNS_CHOICE in
             1)
@@ -80,6 +82,12 @@ if [ ! -f "$WG_CONFIG" ]; then
             ;;
             3)
             CLIENT_DNS="208.67.222.222,208.67.220.220"
+            ;;
+            4)
+            CLIENT_DNS="176.103.130.130,176.103.130.131"
+            ;;
+            5)
+            CLIENT_DNS="9.9.9.9,149.112.112.112"
             ;;
         esac
     fi
@@ -192,7 +200,7 @@ Address = $CLIENT_ADDRESS/$PRIVATE_SUBNET_MASK
 DNS = $CLIENT_DNS
 [Peer]
 PublicKey = $SERVER_PUBKEY
-AllowedIPs = 0.0.0.0/0, ::/0 
+AllowedIPs = 0.0.0.0/0, ::/0
 Endpoint = $SERVER_ENDPOINT
 PersistentKeepalive = 25" > $HOME/$CLIENT_NAME-wg0.conf
 qrencode -t ansiutf8 -l L < $HOME/$CLIENT_NAME-wg0.conf
