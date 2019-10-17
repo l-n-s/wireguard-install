@@ -31,7 +31,7 @@ The script can be configured by setting the following environment variables:
 
 Install WireGuard and reboot your computer:
 
-    sudo add-apt-repository ppa:wireguard/wireguard -y && sudo apt update && sudo apt install wireguard -y
+    sudo add-apt-repository ppa:wireguard/wireguard -y && sudo apt update && sudo apt install wireguard resolvconf -y
     sudo reboot
 
 Copy the file `/root/client-wg0.conf` from a remote server to your local PC path `/etc/wireguard/wg0.conf` and run 
