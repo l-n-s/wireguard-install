@@ -96,9 +96,21 @@ if [ ! -f "$WG_CONFIG" ]; then
     elif [ "$DISTRO" == "Debian" ]; then
         echo "deb http://deb.debian.org/debian/ unstable main" > /etc/apt/sources.list.d/unstable.list
         printf 'Package: *\nPin: release a=unstable\nPin-Priority: 90\n' > /etc/apt/preferences.d/limit-unstable
-		apt-get install software-properties-common -y
-		apt update
-		apt install linux-headers-$(uname -r) wireguard qrencode iptables-persistent -y
+        apt update
+        apt-get install software-properties-common -y
+        apt install linux-headers-$(uname -r) -y && \
+        apt install wireguard qrencode iptables-persistent -y || \
+        {
+            echo "Unable to find linux-headers for this kernel!"
+            echo "Please upgrade kernel first and reboot, then run install again"
+            read -p "Update kernel automatically? [y/n]: " -e -i "y" CONFIRM
+            if [ "$CONFIRM" == "y" ]; then
+                apt-get install linux-image-amd64 linux-headers-amd64 -y && reboot
+            else
+                echo "Please update kernel: apt-get install linux-image-amd64 linux-headers-amd64"
+                exit
+            fi
+        }
     elif [ "$DISTRO" == "CentOS" ]; then
         curl -Lo /etc/yum.repos.d/wireguard.repo https://copr.fedorainfracloud.org/coprs/jdoss/wireguard/repo/epel-7/jdoss-wireguard-epel-7.repo
         yum install epel-release -y
