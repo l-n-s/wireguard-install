@@ -64,6 +64,23 @@ if [ ! -f "$WG_CONFIG" ]; then
         SERVER_PORT=$( get_free_udp_port )
     fi
 
+    ### If you want to enable IPv6, supply PRIVATE_SUBNET6 environment variable or accept using random subnet
+    ### TODO: Add IPv6 subnet validation
+    PRIVATE_SUBNET6=${PRIVATE_SUBNET6:-""}
+    if [[ "$PRIVATE_SUBNET6" == "" && "$INTERACTIVE" == "yes" ]]; then
+        echo "Private subnet for IPv6 is not set."
+        GENERATED_SUBNET6="$( echo fd$(openssl rand -hex 7) | sed 's/.\{4\}/&:/g' ):/64"
+        read -p "Do you want to enable IPv6 support with generated subnet $GENERATED_SUBNET6? [n/y]: " -e -i "n" CONFIRM
+        if [ "$CONFIRM" == "y" ]; then
+            PRIVATE_SUBNET6="$GENERATED_SUBNET6"
+        fi
+    fi
+    if [ "$PRIVATE_SUBNET6" != "" ]; then
+        PRIVATE_SUBNET_MASK6=$( echo $PRIVATE_SUBNET6 | cut -d "/" -f 2 )
+        PRIVATE_SUBNET_ADDRESS6="$( echo $PRIVATE_SUBNET6 | cut -d "/" -f 1 )"
+        GATEWAY_ADDRESS6="${PRIVATE_SUBNET_ADDRESS6}1"
+    fi
+
     if [ "$CLIENT_DNS" == "" ]; then
         echo "Which DNS do you want to use with the VPN?"
         echo "   1) Cloudflare"
@@ -102,33 +119,45 @@ if [ ! -f "$WG_CONFIG" ]; then
     elif [ "$DISTRO" == "CentOS" ]; then
         curl -Lo /etc/yum.repos.d/wireguard.repo https://copr.fedorainfracloud.org/coprs/jdoss/wireguard/repo/epel-7/jdoss-wireguard-epel-7.repo
         yum install epel-release -y
-        yum install wireguard-dkms qrencode wireguard-tools firewalld -y
+        yum remove firewalld -y
+        yum install wireguard-dkms qrencode wireguard-tools iptables-services -y
     fi
 
     SERVER_PRIVKEY=$( wg genkey )
     SERVER_PUBKEY=$( echo $SERVER_PRIVKEY | wg pubkey )
     CLIENT_PRIVKEY=$( wg genkey )
     CLIENT_PUBKEY=$( echo $CLIENT_PRIVKEY | wg pubkey )
-    CLIENT_ADDRESS="${PRIVATE_SUBNET::-4}3"
+
+    INTERFACE_ADDRESS="$GATEWAY_ADDRESS/$PRIVATE_SUBNET_MASK"
+    CLIENT_ADDRESS="${PRIVATE_SUBNET::-4}3/$PRIVATE_SUBNET_MASK"
+    CLIENT_ALLOWED_IPS="${PRIVATE_SUBNET::-4}3/32"
 
     mkdir -p /etc/wireguard
     touch $WG_CONFIG && chmod 600 $WG_CONFIG
 
-    echo "# $PRIVATE_SUBNET $SERVER_HOST:$SERVER_PORT $SERVER_PUBKEY $CLIENT_DNS
-[Interface]
-Address = $GATEWAY_ADDRESS/$PRIVATE_SUBNET_MASK
+    echo "# $PRIVATE_SUBNET $SERVER_HOST:$SERVER_PORT $SERVER_PUBKEY $CLIENT_DNS" > $WG_CONFIG
+
+    if [ "$PRIVATE_SUBNET6" != "" ]; then
+        INTERFACE_ADDRESS="$INTERFACE_ADDRESS, $GATEWAY_ADDRESS6/$PRIVATE_SUBNET_MASK6"
+        CLIENT_ADDRESS="$CLIENT_ADDRESS, ${PRIVATE_SUBNET_ADDRESS6}3/$PRIVATE_SUBNET_MASK6"
+        CLIENT_ALLOWED_IPS="$CLIENT_ALLOWED_IPS, ${PRIVATE_SUBNET_ADDRESS6}3/128"
+        echo "# IPV6 $PRIVATE_SUBNET6" >> $WG_CONFIG
+    fi
+
+    echo "[Interface]
+Address = $INTERFACE_ADDRESS
 ListenPort = $SERVER_PORT
 PrivateKey = $SERVER_PRIVKEY
-SaveConfig = false" > $WG_CONFIG
+SaveConfig = false" >> $WG_CONFIG
 
     echo "# $CLIENT_NAME
 [Peer]
 PublicKey = $CLIENT_PUBKEY
-AllowedIPs = $CLIENT_ADDRESS/32" >> $WG_CONFIG
+AllowedIPs = $CLIENT_ALLOWED_IPS" >> $WG_CONFIG
 
     echo "[Interface]
 PrivateKey = $CLIENT_PRIVKEY
-Address = $CLIENT_ADDRESS/$PRIVATE_SUBNET_MASK
+Address = $CLIENT_ADDRESS
 DNS = $CLIENT_DNS
 [Peer]
 PublicKey = $SERVER_PUBKEY
@@ -143,20 +172,25 @@ qrencode -t ansiutf8 -l L < $HOME/$CLIENT_NAME-wg0.conf
     sysctl -p
 
     if [ "$DISTRO" == "CentOS" ]; then
-        systemctl start firewalld
-        systemctl enable firewalld
-        firewall-cmd --zone=public --add-port=$SERVER_PORT/udp
-        firewall-cmd --zone=trusted --add-source=$PRIVATE_SUBNET
-        firewall-cmd --permanent --zone=public --add-port=$SERVER_PORT/udp
-        firewall-cmd --permanent --zone=trusted --add-source=$PRIVATE_SUBNET
-        firewall-cmd --direct --add-rule ipv4 nat POSTROUTING 0 -s $PRIVATE_SUBNET ! -d $PRIVATE_SUBNET -j SNAT --to $SERVER_HOST
-        firewall-cmd --permanent --direct --add-rule ipv4 nat POSTROUTING 0 -s $PRIVATE_SUBNET ! -d $PRIVATE_SUBNET -j SNAT --to $SERVER_HOST
+        systemctl start iptables
+        systemctl enable iptables
+        IPTABLES_CONF="/etc/sysconfig/iptables"
+        IP6TABLES_CONF="/etc/sysconfig/ip6tables"
     else
-        iptables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-        iptables -A FORWARD -m conntrack --ctstate NEW -s $PRIVATE_SUBNET -m policy --pol none --dir in -j ACCEPT
-        iptables -t nat -A POSTROUTING -s $PRIVATE_SUBNET -m policy --pol none --dir out -j MASQUERADE
-        iptables -A INPUT -p udp --dport $SERVER_PORT -j ACCEPT
-        iptables-save > /etc/iptables/rules.v4
+        IPTABLES_CONF="/etc/iptables/rules.v4"
+        IP6TABLES_CONF="/etc/iptables/rules.v6"
+    fi
+
+    iptables -I FORWARD -m conntrack --ctstate NEW -s $PRIVATE_SUBNET -m policy --pol none --dir in -j ACCEPT
+    iptables -I FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+    iptables -t nat -I POSTROUTING -s $PRIVATE_SUBNET -m policy --pol none --dir out -j MASQUERADE
+    iptables -I INPUT -p udp --dport $SERVER_PORT -j ACCEPT
+    iptables-save > $IPTABLES_CONF
+    if [ "$PRIVATE_SUBNET6" != "" ]; then
+        ip6tables -I FORWARD -m conntrack --ctstate NEW -s $PRIVATE_SUBNET6 -m policy --pol none --dir in -j ACCEPT
+        ip6tables -I FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+        ip6tables -t nat -I POSTROUTING -s $PRIVATE_SUBNET6 -m policy --pol none --dir out -j MASQUERADE
+        ip6tables-save > $IP6TABLES_CONF
     fi
 
     systemctl enable wg-quick@wg0.service
@@ -180,23 +214,31 @@ else
     SERVER_PUBKEY=$( head -n1 $WG_CONFIG | awk '{print $4}')
     CLIENT_DNS=$( head -n1 $WG_CONFIG | awk '{print $5}')
     LASTIP=$( grep "/32" $WG_CONFIG | tail -n1 | awk '{print $3}' | cut -d "/" -f 1 | cut -d "." -f 4 )
-    CLIENT_ADDRESS="${PRIVATE_SUBNET::-4}$((LASTIP+1))"
+    CLIENT_ADDRESS="${PRIVATE_SUBNET::-4}$((LASTIP+1))/$PRIVATE_SUBNET_MASK"
+    CLIENT_ALLOWED_IPS="${PRIVATE_SUBNET::-4}$((LASTIP+1))/32"
+    if grep -q "IPV6" $WG_CONFIG; then
+        PRIVATE_SUBNET6=$( grep "IPV6" $WG_CONFIG | awk '{print$NF}' )
+        PRIVATE_SUBNET_MASK6=$( echo $PRIVATE_SUBNET6 | cut -d "/" -f 2 )
+        PRIVATE_SUBNET_ADDRESS6="$( echo $PRIVATE_SUBNET6 | cut -d "/" -f 1 )"
+        CLIENT_ADDRESS="$CLIENT_ADDRESS, ${PRIVATE_SUBNET_ADDRESS6}$((LASTIP+1))/$PRIVATE_SUBNET_MASK6"
+        CLIENT_ALLOWED_IPS="$CLIENT_ALLOWED_IPS, ${PRIVATE_SUBNET_ADDRESS6}$((LASTIP+1))/128"
+    fi
     echo "# $CLIENT_NAME
 [Peer]
 PublicKey = $CLIENT_PUBKEY
-AllowedIPs = $CLIENT_ADDRESS/32" >> $WG_CONFIG
+AllowedIPs = $CLIENT_ALLOWED_IPS" >> $WG_CONFIG
 
     echo "[Interface]
 PrivateKey = $CLIENT_PRIVKEY
-Address = $CLIENT_ADDRESS/$PRIVATE_SUBNET_MASK
+Address = $CLIENT_ADDRESS
 DNS = $CLIENT_DNS
 [Peer]
 PublicKey = $SERVER_PUBKEY
-AllowedIPs = 0.0.0.0/0, ::/0 
+AllowedIPs = 0.0.0.0/0, ::/0
 Endpoint = $SERVER_ENDPOINT
 PersistentKeepalive = 25" > $HOME/$CLIENT_NAME-wg0.conf
 qrencode -t ansiutf8 -l L < $HOME/$CLIENT_NAME-wg0.conf
 
-    ip address | grep -q wg0 && wg set wg0 peer "$CLIENT_PUBKEY" allowed-ips "$CLIENT_ADDRESS/32"
+    ip address | grep -q wg0 && wg set wg0 peer "$CLIENT_PUBKEY" allowed-ips "$CLIENT_ALLOWED_IPS"
     echo "Client added, new configuration file --> $HOME/$CLIENT_NAME-wg0.conf"
 fi
