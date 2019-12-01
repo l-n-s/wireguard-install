@@ -64,15 +64,15 @@ if [ ! -f "$WG_CONFIG" ]; then
         SERVER_PORT=$( get_free_udp_port )
     fi
 
-    ### If you want to enable IPv6, supply PRIVATE_SUBNET6 environment variable
-    ### You can generate unique private subnet on https://simpledns.com/private-ipv6
-    ### TODO: Add IPv6 address validation
+    ### If you want to enable IPv6, supply PRIVATE_SUBNET6 environment variable or accept using random subnet
+    ### TODO: Add IPv6 subnet validation
     PRIVATE_SUBNET6=${PRIVATE_SUBNET6:-""}
     if [[ "$PRIVATE_SUBNET6" == "" && "$INTERACTIVE" == "yes" ]]; then
         echo "Private subnet for IPv6 is not set."
-        read -p "Do you want to enable IPv6 support with default subnet 'fd42:42:42::/64'? [n/y]: " -e -i "n" CONFIRM
+        GENERATED_SUBNET6="$( echo fd$(openssl rand -hex 7) | sed 's/.\{4\}/&:/g' ):/64"
+        read -p "Do you want to enable IPv6 support with generated subnet $GENERATED_SUBNET6? [n/y]: " -e -i "n" CONFIRM
         if [ "$CONFIRM" == "y" ]; then
-            PRIVATE_SUBNET6="fd42:42:42::/64"
+            PRIVATE_SUBNET6="$GENERATED_SUBNET6"
         fi
     fi
     if [ "$PRIVATE_SUBNET6" != "" ]; then
