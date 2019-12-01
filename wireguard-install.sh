@@ -48,17 +48,6 @@ if [ ! -f "$WG_CONFIG" ]; then
     PRIVATE_SUBNET=${PRIVATE_SUBNET:-"10.9.0.0/24"}
     PRIVATE_SUBNET_MASK=$( echo $PRIVATE_SUBNET | cut -d "/" -f 2 )
     GATEWAY_ADDRESS="${PRIVATE_SUBNET::-4}1"
-    ### If you want to enable IPv6, supply PRIVATE_SUBNET6 environment variable
-    ### You can generate unique private subnet on https://simpledns.com/private-ipv6
-    ### Example:
-    ### PRIVATE_SUBNET6="fd42:42:42::/64"
-    ### TODO: Add IPv6 address validation
-    PRIVATE_SUBNET6=${PRIVATE_SUBNET6:-""}
-    if [ "$PRIVATE_SUBNET6" != "" ]; then
-        PRIVATE_SUBNET_MASK6=$( echo $PRIVATE_SUBNET6 | cut -d "/" -f 2 )
-        PRIVATE_SUBNET_ADDRESS6="$( echo $PRIVATE_SUBNET6 | cut -d "/" -f 1 )"
-        GATEWAY_ADDRESS6="${PRIVATE_SUBNET_ADDRESS6}1"
-    fi
 
     if [ "$SERVER_HOST" == "" ]; then
         SERVER_HOST=$(ip addr | grep 'inet' | grep -v inet6 | grep -vE '127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | head -1)
@@ -73,6 +62,23 @@ if [ ! -f "$WG_CONFIG" ]; then
 
     if [ "$SERVER_PORT" == "" ]; then
         SERVER_PORT=$( get_free_udp_port )
+    fi
+
+    ### If you want to enable IPv6, supply PRIVATE_SUBNET6 environment variable
+    ### You can generate unique private subnet on https://simpledns.com/private-ipv6
+    ### TODO: Add IPv6 address validation
+    PRIVATE_SUBNET6=${PRIVATE_SUBNET6:-""}
+    if [[ "$PRIVATE_SUBNET6" == "" && "$INTERACTIVE" == "yes" ]]; then
+        echo "Private subnet for IPv6 is not set."
+        read -p "Do you want to enable IPv6 support with default subnet 'fd42:42:42::/64'? [n/y]: " -e -i "n" CONFIRM
+        if [ "$CONFIRM" == "y" ]; then
+            PRIVATE_SUBNET6="fd42:42:42::/64"
+        fi
+    fi
+    if [ "$PRIVATE_SUBNET6" != "" ]; then
+        PRIVATE_SUBNET_MASK6=$( echo $PRIVATE_SUBNET6 | cut -d "/" -f 2 )
+        PRIVATE_SUBNET_ADDRESS6="$( echo $PRIVATE_SUBNET6 | cut -d "/" -f 1 )"
+        GATEWAY_ADDRESS6="${PRIVATE_SUBNET_ADDRESS6}1"
     fi
 
     if [ "$CLIENT_DNS" == "" ]; then
@@ -113,7 +119,8 @@ if [ ! -f "$WG_CONFIG" ]; then
     elif [ "$DISTRO" == "CentOS" ]; then
         curl -Lo /etc/yum.repos.d/wireguard.repo https://copr.fedorainfracloud.org/coprs/jdoss/wireguard/repo/epel-7/jdoss-wireguard-epel-7.repo
         yum install epel-release -y
-        yum install wireguard-dkms qrencode wireguard-tools firewalld -y
+        yum remove firewalld -y
+        yum install wireguard-dkms qrencode wireguard-tools iptables-services -y
     fi
 
     SERVER_PRIVKEY=$( wg genkey )
@@ -137,7 +144,7 @@ if [ ! -f "$WG_CONFIG" ]; then
         echo "# IPV6 $PRIVATE_SUBNET6" >> $WG_CONFIG
     fi
 
-echo "[Interface]
+    echo "[Interface]
 Address = $INTERFACE_ADDRESS
 ListenPort = $SERVER_PORT
 PrivateKey = $SERVER_PRIVKEY
@@ -165,33 +172,25 @@ qrencode -t ansiutf8 -l L < $HOME/$CLIENT_NAME-wg0.conf
     sysctl -p
 
     if [ "$DISTRO" == "CentOS" ]; then
-        systemctl start firewalld
-        systemctl enable firewalld
-        firewall-cmd --zone=public --add-port=$SERVER_PORT/udp
-        firewall-cmd --zone=trusted --add-source=$PRIVATE_SUBNET
-        firewall-cmd --permanent --zone=public --add-port=$SERVER_PORT/udp
-        firewall-cmd --permanent --zone=trusted --add-source=$PRIVATE_SUBNET
-        firewall-cmd --direct --add-rule ipv4 nat POSTROUTING 0 -s $PRIVATE_SUBNET ! -d $PRIVATE_SUBNET -j SNAT --to $SERVER_HOST
-        firewall-cmd --permanent --direct --add-rule ipv4 nat POSTROUTING 0 -s $PRIVATE_SUBNET ! -d $PRIVATE_SUBNET -j SNAT --to $SERVER_HOST
-        if [ "$PRIVATE_SUBNET6" != "" ]; then
-        # IPv6 firewalld part is not tested yet
-            firewall-cmd --zone=trusted --add-source=$PRIVATE_SUBNET6
-            firewall-cmd --permanent --zone=trusted --add-source=$PRIVATE_SUBNET6
-            firewall-cmd --direct --add-rule ipv6 nat POSTROUTING 0 -s $PRIVATE_SUBNET6 ! -d $PRIVATE_SUBNET6 -j SNAT --to $SERVER_HOST
-            firewall-cmd --permanent --direct --add-rule ipv4 nat POSTROUTING 0 -s $PRIVATE_SUBNET6 ! -d $PRIVATE_SUBNET6 -j SNAT --to $SERVER_HOST
-        fi
+        systemctl start iptables
+        systemctl enable iptables
+        IPTABLES_CONF="/etc/sysconfig/iptables"
+        IP6TABLES_CONF="/etc/sysconfig/ip6tables"
     else
-        iptables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-        iptables -A FORWARD -m conntrack --ctstate NEW -s $PRIVATE_SUBNET -m policy --pol none --dir in -j ACCEPT
-        iptables -t nat -A POSTROUTING -s $PRIVATE_SUBNET -m policy --pol none --dir out -j MASQUERADE
-        iptables -A INPUT -p udp --dport $SERVER_PORT -j ACCEPT
-        iptables-save > /etc/iptables/rules.v4
-        if [ "$PRIVATE_SUBNET6" != "" ]; then
-            ip6tables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-            ip6tables -A FORWARD -m conntrack --ctstate NEW -s $PRIVATE_SUBNET6 -m policy --pol none --dir in -j ACCEPT
-            ip6tables -t nat -A POSTROUTING -s $PRIVATE_SUBNET6 -m policy --pol none --dir out -j MASQUERADE
-            ip6tables-save > /etc/iptables/rules.v6
-        fi
+        IPTABLES_CONF="/etc/iptables/rules.v4"
+        IP6TABLES_CONF="/etc/iptables/rules.v6"
+    fi
+
+    iptables -I FORWARD -m conntrack --ctstate NEW -s $PRIVATE_SUBNET -m policy --pol none --dir in -j ACCEPT
+    iptables -I FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+    iptables -t nat -I POSTROUTING -s $PRIVATE_SUBNET -m policy --pol none --dir out -j MASQUERADE
+    iptables -I INPUT -p udp --dport $SERVER_PORT -j ACCEPT
+    iptables-save > $IPTABLES_CONF
+    if [ "$PRIVATE_SUBNET6" != "" ]; then
+        ip6tables -I FORWARD -m conntrack --ctstate NEW -s $PRIVATE_SUBNET6 -m policy --pol none --dir in -j ACCEPT
+        ip6tables -I FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+        ip6tables -t nat -I POSTROUTING -s $PRIVATE_SUBNET6 -m policy --pol none --dir out -j MASQUERADE
+        ip6tables-save > $IP6TABLES_CONF
     fi
 
     systemctl enable wg-quick@wg0.service
