@@ -48,6 +48,17 @@ if [ ! -f "$WG_CONFIG" ]; then
     PRIVATE_SUBNET=${PRIVATE_SUBNET:-"10.9.0.0/24"}
     PRIVATE_SUBNET_MASK=$( echo $PRIVATE_SUBNET | cut -d "/" -f 2 )
     GATEWAY_ADDRESS="${PRIVATE_SUBNET::-4}1"
+    ### If you want to enable IPv6, supply PRIVATE_SUBNET6 environment variable
+    ### You can generate unique private subnet on https://simpledns.com/private-ipv6
+    ### Example:
+    ### PRIVATE_SUBNET6="fd42:42:42::/64"
+    ### TODO: Add IPv6 address validation
+    PRIVATE_SUBNET6=${PRIVATE_SUBNET6:-""}
+    if [ "$PRIVATE_SUBNET6" != "" ]; then
+        PRIVATE_SUBNET_MASK6=$( echo $PRIVATE_SUBNET6 | cut -d "/" -f 2 )
+        PRIVATE_SUBNET_ADDRESS6="$( echo $PRIVATE_SUBNET6 | cut -d "/" -f 1 )"
+        GATEWAY_ADDRESS6="${PRIVATE_SUBNET_ADDRESS6}1"
+    fi
 
     if [ "$SERVER_HOST" == "" ]; then
         SERVER_HOST=$(ip addr | grep 'inet' | grep -v inet6 | grep -vE '127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | head -1)
@@ -109,26 +120,37 @@ if [ ! -f "$WG_CONFIG" ]; then
     SERVER_PUBKEY=$( echo $SERVER_PRIVKEY | wg pubkey )
     CLIENT_PRIVKEY=$( wg genkey )
     CLIENT_PUBKEY=$( echo $CLIENT_PRIVKEY | wg pubkey )
-    CLIENT_ADDRESS="${PRIVATE_SUBNET::-4}3"
+
+    INTERFACE_ADDRESS="$GATEWAY_ADDRESS/$PRIVATE_SUBNET_MASK"
+    CLIENT_ADDRESS="${PRIVATE_SUBNET::-4}3/$PRIVATE_SUBNET_MASK"
+    CLIENT_ALLOWED_IPS="${PRIVATE_SUBNET::-4}3/32"
 
     mkdir -p /etc/wireguard
     touch $WG_CONFIG && chmod 600 $WG_CONFIG
 
-    echo "# $PRIVATE_SUBNET $SERVER_HOST:$SERVER_PORT $SERVER_PUBKEY $CLIENT_DNS
-[Interface]
-Address = $GATEWAY_ADDRESS/$PRIVATE_SUBNET_MASK
+    echo "# $PRIVATE_SUBNET $SERVER_HOST:$SERVER_PORT $SERVER_PUBKEY $CLIENT_DNS" > $WG_CONFIG
+
+    if [ "$PRIVATE_SUBNET6" != "" ]; then
+        INTERFACE_ADDRESS="$INTERFACE_ADDRESS, $GATEWAY_ADDRESS6/$PRIVATE_SUBNET_MASK6"
+        CLIENT_ADDRESS="$CLIENT_ADDRESS, ${PRIVATE_SUBNET_ADDRESS6}3/$PRIVATE_SUBNET_MASK6"
+        CLIENT_ALLOWED_IPS="$CLIENT_ALLOWED_IPS, ${PRIVATE_SUBNET_ADDRESS6}3/128"
+        echo "# IPV6 $PRIVATE_SUBNET6" >> $WG_CONFIG
+    fi
+
+echo "[Interface]
+Address = $INTERFACE_ADDRESS
 ListenPort = $SERVER_PORT
 PrivateKey = $SERVER_PRIVKEY
-SaveConfig = false" > $WG_CONFIG
+SaveConfig = false" >> $WG_CONFIG
 
     echo "# $CLIENT_NAME
 [Peer]
 PublicKey = $CLIENT_PUBKEY
-AllowedIPs = $CLIENT_ADDRESS/32" >> $WG_CONFIG
+AllowedIPs = $CLIENT_ALLOWED_IPS" >> $WG_CONFIG
 
     echo "[Interface]
 PrivateKey = $CLIENT_PRIVKEY
-Address = $CLIENT_ADDRESS/$PRIVATE_SUBNET_MASK
+Address = $CLIENT_ADDRESS
 DNS = $CLIENT_DNS
 [Peer]
 PublicKey = $SERVER_PUBKEY
@@ -151,12 +173,25 @@ qrencode -t ansiutf8 -l L < $HOME/$CLIENT_NAME-wg0.conf
         firewall-cmd --permanent --zone=trusted --add-source=$PRIVATE_SUBNET
         firewall-cmd --direct --add-rule ipv4 nat POSTROUTING 0 -s $PRIVATE_SUBNET ! -d $PRIVATE_SUBNET -j SNAT --to $SERVER_HOST
         firewall-cmd --permanent --direct --add-rule ipv4 nat POSTROUTING 0 -s $PRIVATE_SUBNET ! -d $PRIVATE_SUBNET -j SNAT --to $SERVER_HOST
+        if [ "$PRIVATE_SUBNET6" != "" ]; then
+        # IPv6 firewalld part is not tested yet
+            firewall-cmd --zone=trusted --add-source=$PRIVATE_SUBNET6
+            firewall-cmd --permanent --zone=trusted --add-source=$PRIVATE_SUBNET6
+            firewall-cmd --direct --add-rule ipv6 nat POSTROUTING 0 -s $PRIVATE_SUBNET6 ! -d $PRIVATE_SUBNET6 -j SNAT --to $SERVER_HOST
+            firewall-cmd --permanent --direct --add-rule ipv4 nat POSTROUTING 0 -s $PRIVATE_SUBNET6 ! -d $PRIVATE_SUBNET6 -j SNAT --to $SERVER_HOST
+        fi
     else
         iptables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
         iptables -A FORWARD -m conntrack --ctstate NEW -s $PRIVATE_SUBNET -m policy --pol none --dir in -j ACCEPT
         iptables -t nat -A POSTROUTING -s $PRIVATE_SUBNET -m policy --pol none --dir out -j MASQUERADE
         iptables -A INPUT -p udp --dport $SERVER_PORT -j ACCEPT
         iptables-save > /etc/iptables/rules.v4
+        if [ "$PRIVATE_SUBNET6" != "" ]; then
+            ip6tables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+            ip6tables -A FORWARD -m conntrack --ctstate NEW -s $PRIVATE_SUBNET6 -m policy --pol none --dir in -j ACCEPT
+            ip6tables -t nat -A POSTROUTING -s $PRIVATE_SUBNET6 -m policy --pol none --dir out -j MASQUERADE
+            ip6tables-save > /etc/iptables/rules.v6
+        fi
     fi
 
     systemctl enable wg-quick@wg0.service
@@ -180,23 +215,31 @@ else
     SERVER_PUBKEY=$( head -n1 $WG_CONFIG | awk '{print $4}')
     CLIENT_DNS=$( head -n1 $WG_CONFIG | awk '{print $5}')
     LASTIP=$( grep "/32" $WG_CONFIG | tail -n1 | awk '{print $3}' | cut -d "/" -f 1 | cut -d "." -f 4 )
-    CLIENT_ADDRESS="${PRIVATE_SUBNET::-4}$((LASTIP+1))"
+    CLIENT_ADDRESS="${PRIVATE_SUBNET::-4}$((LASTIP+1))/$PRIVATE_SUBNET_MASK"
+    CLIENT_ALLOWED_IPS="${PRIVATE_SUBNET::-4}$((LASTIP+1))/32"
+    if grep -q "IPV6" $WG_CONFIG; then
+        PRIVATE_SUBNET6=$( grep "IPV6" $WG_CONFIG | awk '{print$NF}' )
+        PRIVATE_SUBNET_MASK6=$( echo $PRIVATE_SUBNET6 | cut -d "/" -f 2 )
+        PRIVATE_SUBNET_ADDRESS6="$( echo $PRIVATE_SUBNET6 | cut -d "/" -f 1 )"
+        CLIENT_ADDRESS="$CLIENT_ADDRESS, ${PRIVATE_SUBNET_ADDRESS6}$((LASTIP+1))/$PRIVATE_SUBNET_MASK6"
+        CLIENT_ALLOWED_IPS="$CLIENT_ALLOWED_IPS, ${PRIVATE_SUBNET_ADDRESS6}$((LASTIP+1))/128"
+    fi
     echo "# $CLIENT_NAME
 [Peer]
 PublicKey = $CLIENT_PUBKEY
-AllowedIPs = $CLIENT_ADDRESS/32" >> $WG_CONFIG
+AllowedIPs = $CLIENT_ALLOWED_IPS" >> $WG_CONFIG
 
     echo "[Interface]
 PrivateKey = $CLIENT_PRIVKEY
-Address = $CLIENT_ADDRESS/$PRIVATE_SUBNET_MASK
+Address = $CLIENT_ADDRESS
 DNS = $CLIENT_DNS
 [Peer]
 PublicKey = $SERVER_PUBKEY
-AllowedIPs = 0.0.0.0/0, ::/0 
+AllowedIPs = 0.0.0.0/0, ::/0
 Endpoint = $SERVER_ENDPOINT
 PersistentKeepalive = 25" > $HOME/$CLIENT_NAME-wg0.conf
 qrencode -t ansiutf8 -l L < $HOME/$CLIENT_NAME-wg0.conf
 
-    ip address | grep -q wg0 && wg set wg0 peer "$CLIENT_PUBKEY" allowed-ips "$CLIENT_ADDRESS/32"
+    ip address | grep -q wg0 && wg set wg0 peer "$CLIENT_PUBKEY" allowed-ips "$CLIENT_ALLOWED_IPS"
     echo "Client added, new configuration file --> $HOME/$CLIENT_NAME-wg0.conf"
 fi
